@@ -1,0 +1,44 @@
+# Dependencias del motor de inferencia H-Net.
+#
+# Entorno de referencia: WSL 2 + Ubuntu 24.04, Python 3.12, CUDA Toolkit 12.x,
+# GPU NVIDIA Ampere (sm_86) o Ada (sm_89).
+#
+# Las versiones están fijadas deliberadamente. La instalación debe realizarse
+# siempre sin resolución de dependencias, ya que pip tiende a actualizar torch
+# a compilaciones ligadas a CUDA 13 e inutiliza el entorno:
+#
+#   .venv/bin/pip install --no-deps --no-build-isolation -r requirements.txt
+#
+# Las extensiones CUDA (flash-attn, mamba-ssm, causal-conv1d) se compilan contra
+# el torch instalado, por lo que este debe estar presente antes de procesarlas.
+
+--extra-index-url https://download.pytorch.org/whl/cu121
+
+# Base de PyTorch (runtime cu121)
+torch==2.5.1+cu121
+torchvision==0.20.1+cu121
+torchaudio==2.5.1+cu121
+# Triton 3.1.0 carece de set_allocator; se compensa con un shim.
+triton==3.1.0
+
+# Herramientas de compilación de extensiones
+ninja==1.13.2
+
+# Núcleos de H-Net
+# flash-attn aporta también GenerationMixin y RMSNorm utilizados por H-Net.
+flash-attn==2.7.4.post1
+# mamba-ssm 2.3.x incorpora Mamba-3/quack y exige PyTorch >= 2.6.
+mamba-ssm==2.2.4
+# Firma C++ de 8 argumentos; se adapta mediante un shim.
+causal-conv1d==1.7.0
+
+# Baseline Qwen
+# transformers >= 5 elimina GreedySearchDecoderOnlyOutput.
+transformers==4.44.2
+tokenizers>=0.19.1,<0.20
+huggingface-hub>=0.23.2,<1.0
+
+# Utilidades
+einops==0.8.2
+# Requerido por isotropic.py; sin versión fijada.
+optree
