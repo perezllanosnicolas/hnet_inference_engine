@@ -34,10 +34,40 @@ def _dummy_set_allocator(allocator):
     pass
 
 
+def _align_for_kernel(x):
+    """Devuelve ``x`` con strides admitidos por el kernel (copia solo si es necesario)."""
+    if x.stride(1) == 1 and (x.stride(0) % 8 != 0 or x.stride(2) % 8 != 0):
+        if x.shape[1] % 8 == 0:
+            return x.transpose(1, 2).contiguous().transpose(1, 2)
+        return x.contiguous()
+    if not x.is_contiguous() and x.stride(1) != 1:
+        return x.contiguous()
+    return x
+
+
 def _make_patched_causal_conv1d_fwd(orig_fwd):
     """Construye el adaptador de ``causal_conv1d_fwd`` sobre la función original."""
 
-    def _patched_causal_conv1d_fwd(
+    def _patched_causal_conv1d_fwd(*args):
+        # Se distinguen las dos convenciones de llamada por el número de argumentos
+        if len(args) == 8:
+            return _current_causal_conv1d_fwd(*args)
+        return _legacy_causal_conv1d_fwd(*args)
+
+    def _current_causal_conv1d_fwd(
+        x, weight, bias, seq_idx, initial_states, out, final_states_out, silu_activation
+    ):
+        # Convención nueva (8 argumentos, ``out`` preasignado por quien llama), empleada
+        # por la propia interfaz de causal-conv1d (``causal_conv1d_fn``). Si ``x`` no está
+        # alineado, se calcula sobre una copia alineada y se vuelca el resultado en ``out``.
+        x_aligned = _align_for_kernel(x)
+        if x_aligned is x:
+            return orig_fwd(x, weight, bias, seq_idx, initial_states, out, final_states_out, silu_activation)
+        out_aligned = torch.empty_like(x_aligned)
+        orig_fwd(x_aligned, weight, bias, seq_idx, initial_states, out_aligned, final_states_out, silu_activation)
+        out.copy_(out_aligned)
+
+    def _legacy_causal_conv1d_fwd(
         x,
         weight,
         bias=None,
@@ -45,17 +75,9 @@ def _make_patched_causal_conv1d_fwd(orig_fwd):
         initial_states=None,
         return_final_states=None,
         silu_activation=True,
-        *args,
-        **kwargs
     ):
-        # Alineación de strides exigida por el kernel en formato channel-last
-        if x.stride(1) == 1 and (x.stride(0) % 8 != 0 or x.stride(2) % 8 != 0):
-            if x.shape[1] % 8 == 0:
-                x = x.transpose(1, 2).contiguous().transpose(1, 2)
-            else:
-                x = x.contiguous()
-        elif not x.is_contiguous() and x.stride(1) != 1:
-            x = x.contiguous()
+        # Convención antigua (7 argumentos) empleada directamente por mamba-ssm 2.2.4
+        x = _align_for_kernel(x)
 
         # Preasignación de las salidas requerida por la firma de 8 argumentos
         out = torch.empty_like(x)

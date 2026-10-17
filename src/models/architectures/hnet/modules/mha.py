@@ -317,10 +317,10 @@ class CausalMHA(nn.Module):
 
     def _update_kvcache_attention(self, q, kv, inference_params):
         """Write kv to inference_params, then do attention"""
+        #TFG: Se elimina la condición `not self.use_flash_attn`, heredada del MHA de flash-attn; CausalMHA no define ese atributo (siempre emplea FlashAttention) y su evaluación provocaba AttributeError en step()
         if (
             inference_params.seqlen_offset == 0
             or flash_attn_with_kvcache is None
-            or not self.use_flash_attn
         ):
             # TODO: this only uses seqlen_offset and not lengths_per_sample.
             kv = self._update_kv_cache(kv, inference_params)
