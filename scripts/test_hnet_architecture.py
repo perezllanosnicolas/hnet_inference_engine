@@ -3,13 +3,13 @@ import os
 import triton
 import torch
 
-# 1. Compatibilidad para Triton en PyTorch 2.5.1
+# 1. Compatibilidad de Triton 3.1.0 (PyTorch 2.5.1): se define set_allocator si no existe
 if not hasattr(triton, 'set_allocator'):
     def _dummy_set_allocator(allocator):
         pass
     triton.set_allocator = _dummy_set_allocator
 
-# 2. Adapter Shim para causal-conv1d 1.7.0 (alineación de strides y firma de 8 argumentos)
+# 2. Adaptador para causal-conv1d 1.7.0 (alineación de strides y firma de 8 argumentos)
 import causal_conv1d_cuda
 
 _orig_causal_conv1d_fwd = causal_conv1d_cuda.causal_conv1d_fwd
@@ -58,42 +58,13 @@ causal_conv1d_cuda.causal_conv1d_fwd = _patched_causal_conv1d_fwd
 # 3. Inyección de rutas e importación de H-Net
 sys.path.append(os.path.abspath("src/models/architectures"))
 
-import hnet.modules.mha as hnet_mha
 from hnet.models.config_hnet import HNetConfig, AttnConfig, SSMConfig
 from hnet.models.mixer_seq import HNetForCausalLM
 from hnet.utils.tokenizers import ByteTokenizer
 
-# 4. Adapter Shim para FlashAttention: asegurar que max_seqlen sea int nativo
-_orig_flash_self_fwd = hnet_mha.FlashSelfAttention.forward
-
-def _patched_flash_self_fwd(self, *args, **kwargs):
-    args = list(args)
-    if len(args) > 3 and isinstance(args[3], torch.Tensor):
-        args[3] = int(args[3].item())
-    if "max_seqlen" in kwargs and isinstance(kwargs["max_seqlen"], torch.Tensor):
-        kwargs["max_seqlen"] = int(kwargs["max_seqlen"].item())
-    return _orig_flash_self_fwd(self, *args, **kwargs)
-
-hnet_mha.FlashSelfAttention.forward = _patched_flash_self_fwd
-
-if hasattr(hnet_mha, "FlashCrossAttention"):
-    _orig_flash_cross_fwd = hnet_mha.FlashCrossAttention.forward
-    def _patched_flash_cross_fwd(self, *args, **kwargs):
-        args = list(args)
-        if len(args) > 4 and isinstance(args[4], torch.Tensor):
-            args[4] = int(args[4].item())
-        if len(args) > 6 and isinstance(args[6], torch.Tensor):
-            args[6] = int(args[6].item())
-        if "max_seqlen" in kwargs and isinstance(kwargs["max_seqlen"], torch.Tensor):
-            kwargs["max_seqlen"] = int(kwargs["max_seqlen"].item())
-        if "max_seqlen_k" in kwargs and isinstance(kwargs["max_seqlen_k"], torch.Tensor):
-            kwargs["max_seqlen_k"] = int(kwargs["max_seqlen_k"].item())
-        return _orig_flash_cross_fwd(self, *args, **kwargs)
-    hnet_mha.FlashCrossAttention.forward = _patched_flash_cross_fwd
-
 
 def test_hnet_forward():
-    print("--- Iniciando prueba de humo de Arquitectura H-Net ---")
+    print("--- Prueba de humo de la arquitectura H-Net ---")
     
     device = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
@@ -104,19 +75,19 @@ def test_hnet_forward():
         d_model=[128, 256, 128],          
         d_intermediate=[256, 512, 256],   
         arch_layout=[
-            "m1t1",     # Stage 0: Downsampler
-            ["M2T1"],   # Stage 1: Backbone
-            "m1t1"      # Stage 2: Upsampler
+            "m1t1",     # Etapa 0: codificador (resolución de byte)
+            ["M2T1"],   # Etapa 1: red principal (resolución de chunk)
+            "m1t1"      # Etapa 0: decodificador (resolución de byte)
         ],
         attn_cfg=AttnConfig(
             num_heads=[4, 8, 4],
             rotary_emb_dim=[0, 0, 0],
-            window_size=[(-1, -1), (-1, -1), (-1, -1)]
+            window_size=[-1, -1, -1]
         ),
         ssm_cfg=SSMConfig()
     )
 
-    print("Instanciando el modelo (pesos aleatorios)...")
+    print("Instanciación del modelo (pesos aleatorios)...")
     model = HNetForCausalLM(config).to(device=device, dtype=dtype)
     model.eval() 
     
@@ -129,16 +100,16 @@ def test_hnet_forward():
     print(f"Texto original: '{texto_prueba}'")
     print(f"Bytes de entrada (forma): {input_ids.shape}")
 
-    print("Ejecutando Forward Pass en GPU...")
+    print("Ejecución del forward pass...")
     with torch.no_grad():
         output = model(input_ids)
     
-    print("\n✅ ¡ÉXITO TOTAL! El modelo ha procesado los bytes en la GPU correctamente.")
-    print(f"Forma de los Logits de salida: {output.logits.shape}")
+    print("\nForward pass completado sin errores.")
+    print(f"Forma de los logits de salida: {output.logits.shape}")
     
     if hasattr(output, "bpred_output") and output.bpred_output:
         router_output = output.bpred_output[0]
-        print(f"Máscara de fronteras (Boundary Mask): {router_output.boundary_mask.shape}")
+        print(f"Forma de la máscara de fronteras (boundary_mask): {router_output.boundary_mask.shape}")
         chunks_creados = router_output.boundary_mask.sum().item()
         print(f"Bytes originales: {input_ids.shape[1]} -> Chunks comprimidos: {chunks_creados}")
 

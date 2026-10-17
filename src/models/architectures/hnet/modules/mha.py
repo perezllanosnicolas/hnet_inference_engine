@@ -127,10 +127,17 @@ class FlashCausalCrossAttention(nn.Module):
         if cu_seqlens is not None:
             assert cu_seqlens.dtype == torch.int32
             assert max_seqlen is not None
-            assert isinstance(max_seqlen, int)  
+            # TFG: en modo empaquetado max_seqlen llega como tensor 0-d; flash-attn exige int.
+            if isinstance(max_seqlen, torch.Tensor):
+                max_seqlen = int(max_seqlen.item())
+            assert isinstance(max_seqlen, int)
             assert cu_seqlens_k is not None
-            assert cu_seqlens_k.dtype == torch.int32f   
+            # TFG: errata del original (torch.int32f) -> torch.int32.
+            assert cu_seqlens_k.dtype == torch.int32
             assert max_seqlen_k is not None
+            # TFG: misma conversión tensor 0-d -> int para max_seqlen_k.
+            if isinstance(max_seqlen_k, torch.Tensor):
+                max_seqlen_k = int(max_seqlen_k.item())
             assert isinstance(max_seqlen_k, int)
             return flash_attn_varlen_kvpacked_func(
                 q,
@@ -158,7 +165,8 @@ class LinearResidual(nn.Linear):
     """Wrap nn.Linear to return the residual as well. For compatibility with FusedDense."""
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        return super().forward(input), inpu
+        # TFG: errata del original (inpu) -> input.
+        return super().forward(input), input
 
 def _update_kv_cache(kv, inference_params, layer_idx):
     """kv: (batch_size, seqlen, 2, nheads, head_dim) or (batch_size, 1, 2, nheads, head_dim)"""

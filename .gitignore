@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+*.so
+
+# Entornos virtuales y variables de entorno
+.venv/
+venv/
+env/
+.env
+
+# Extensiones CUDA / compilación (ninja, torch cpp_extension)
+*.o
+*.cuo
+.ninja_deps
+.ninja_log
+torch_extensions/
+
+# Pesos y checkpoints
+*.pt
+*.pth
+*.bin
+*.ckpt
+*.safetensors
+
+# Resultados de benchmarks / logs
+results/
+logs/
+*.log
+wandb/
+
+# Tests / cobertura
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Editores y SO
+.vscode/
+.idea/
+.DS_Store
