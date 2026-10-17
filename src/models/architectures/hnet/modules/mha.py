@@ -57,6 +57,8 @@ class FlashCausalSelfAttention(nn.Module):
         if cu_seqlens is not None:
             assert cu_seqlens.dtype == torch.int32
             assert max_seqlen is not None
+            if isinstance(max_seqlen, torch.Tensor):
+                max_seqlen = int(max_seqlen.item())
             assert isinstance(max_seqlen, int)
             return flash_attn_varlen_qkvpacked_func(
                 qkv,
@@ -125,9 +127,9 @@ class FlashCausalCrossAttention(nn.Module):
         if cu_seqlens is not None:
             assert cu_seqlens.dtype == torch.int32
             assert max_seqlen is not None
-            assert isinstance(max_seqlen, int)
+            assert isinstance(max_seqlen, int)  
             assert cu_seqlens_k is not None
-            assert cu_seqlens_k.dtype == torch.int32
+            assert cu_seqlens_k.dtype == torch.int32f   
             assert max_seqlen_k is not None
             assert isinstance(max_seqlen_k, int)
             return flash_attn_varlen_kvpacked_func(
@@ -156,8 +158,7 @@ class LinearResidual(nn.Linear):
     """Wrap nn.Linear to return the residual as well. For compatibility with FusedDense."""
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        return super().forward(input), input
-
+        return super().forward(input), inpu
 
 def _update_kv_cache(kv, inference_params, layer_idx):
     """kv: (batch_size, seqlen, 2, nheads, head_dim) or (batch_size, 1, 2, nheads, head_dim)"""
