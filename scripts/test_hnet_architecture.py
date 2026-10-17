@@ -1,62 +1,10 @@
 import sys
 import os
-import triton
 import torch
 
-# 1. Compatibilidad de Triton 3.1.0 (PyTorch 2.5.1): se define set_allocator si no existe
-if not hasattr(triton, 'set_allocator'):
-    def _dummy_set_allocator(allocator):
-        pass
-    triton.set_allocator = _dummy_set_allocator
-
-# 2. Adaptador para causal-conv1d 1.7.0 (alineación de strides y firma de 8 argumentos)
-import causal_conv1d_cuda
-
-_orig_causal_conv1d_fwd = causal_conv1d_cuda.causal_conv1d_fwd
-
-def _patched_causal_conv1d_fwd(
-    x,
-    weight,
-    bias=None,
-    seq_idx=None,
-    initial_states=None,
-    return_final_states=None,
-    silu_activation=True,
-    *args,
-    **kwargs
-):
-    if x.stride(1) == 1 and (x.stride(0) % 8 != 0 or x.stride(2) % 8 != 0):
-        if x.shape[1] % 8 == 0:
-            x = x.transpose(1, 2).contiguous().transpose(1, 2)
-        else:
-            x = x.contiguous()
-    elif not x.is_contiguous() and x.stride(1) != 1:
-        x = x.contiguous()
-
-    out = torch.empty_like(x)
-    final_states_out = None
-    if return_final_states:
-        final_states_out = torch.empty(
-            x.shape[0], x.shape[1], weight.shape[-1] - 1, device=x.device, dtype=x.dtype
-        )
-
-    _orig_causal_conv1d_fwd(
-        x,
-        weight,
-        bias,
-        seq_idx,
-        initial_states,
-        out,
-        final_states_out,
-        bool(silu_activation)
-    )
-
-    return (out, final_states_out) if return_final_states else out
-
-causal_conv1d_cuda.causal_conv1d_fwd = _patched_causal_conv1d_fwd
-
-# 3. Inyección de rutas e importación de H-Net
+# Aplicación de los shims de compatibilidad antes de importar H-Net
 sys.path.append(os.path.abspath("src/models/architectures"))
+import hnet_compat  # noqa: F401
 
 from hnet.models.config_hnet import HNetConfig, AttnConfig, SSMConfig
 from hnet.models.mixer_seq import HNetForCausalLM
