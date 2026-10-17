@@ -1,7 +1,7 @@
 """
 Pruebas del motor de inferencia.
 
-Se agrupan en dos bloques:
+Se agrupan en tres bloques:
 
 1. Coherencia de la decodificación incremental de H-Net: los logits obtenidos
    mediante prefill + ``step`` (con forzado del byte real en cada paso) deben
@@ -10,7 +10,12 @@ Se agrupan en dos bloques:
    verifica con un modelo pequeño de pesos aleatorios y, si está disponible en la
    caché local de Hugging Face, con el checkpoint ``hnet_1stage_L``. Requieren GPU.
 
-2. Condiciones de parada y muestreo de ``BaseModelWrapper.generate`` mediante un
+2. Baseline Qwen (``QwenWrapper``): la tabla de bytes reproduce el UTF-8 del
+   texto y la generación voraz coincide con ``model.generate`` de
+   ``transformers``, tanto con caché dinámica como estática. Requieren GPU y
+   ``Qwen/Qwen2.5-0.5B`` en la caché local de Hugging Face.
+
+3. Condiciones de parada y muestreo de ``BaseModelWrapper.generate`` mediante un
    modelo ficticio en CPU cuyos logits están predeterminados, de modo que el
    comportamiento esperado es exacto y no depende de pesos reales.
 
@@ -212,7 +217,107 @@ class TestHNetIncrementalCheckpoint(_CoherenceAssertions, unittest.TestCase):
 
 
 # ======================================================================
-# 2. Parada y muestreo de BaseModelWrapper (modelo ficticio, CPU)
+# 2. Baseline Qwen: contabilidad de bytes y generación voraz (GPU)
+# ======================================================================
+
+QWEN_REPO = "Qwen/Qwen2.5-0.5B"
+
+
+def _qwen_cached(repo_id: str) -> bool:
+    """Indica si los pesos del modelo están en la caché local de Hugging Face."""
+    try:
+        from huggingface_hub import try_to_load_from_cache
+    except ImportError:
+        return False
+    path = try_to_load_from_cache(repo_id, "model.safetensors")
+    return isinstance(path, str) and os.path.isfile(path)
+
+
+QWEN_AVAILABLE = HAS_CUDA and _qwen_cached(QWEN_REPO)
+
+
+class TestQwenWrapperValidation(unittest.TestCase):
+    """Validación de argumentos sin cargar el modelo."""
+
+    def test_static_cache_rejects_flash_attention(self):
+        from src.models.wrappers.qwen_wrapper import QwenWrapper
+
+        with self.assertRaises(ValueError):
+            QwenWrapper(device="cpu", cache_implementation="static")
+
+    def test_checkpoint_resolution(self):
+        from src.models.wrappers.qwen_wrapper import resolve_checkpoint
+
+        self.assertEqual(resolve_checkpoint("Qwen2.5-0.5B"), "Qwen/Qwen2.5-0.5B")
+        self.assertEqual(resolve_checkpoint("Qwen/Qwen2.5-1.5B"), "Qwen/Qwen2.5-1.5B")
+
+
+@unittest.skipUnless(QWEN_AVAILABLE, f"Se requiere GPU y '{QWEN_REPO}' en la caché local.")
+class TestQwenWrapper(unittest.TestCase):
+    """Coherencia de ``QwenWrapper`` con ``transformers`` sobre ``Qwen2.5-0.5B``."""
+
+    @classmethod
+    def setUpClass(cls):
+        from src.models.wrappers.qwen_wrapper import QwenWrapper
+
+        cls.wrapper = QwenWrapper(device="cuda")
+        cls.wrapper.load(QWEN_REPO)
+        cls.static = QwenWrapper(device="cuda", attn_implementation="sdpa", cache_implementation="static")
+        cls.static.load(QWEN_REPO)
+
+    @classmethod
+    def tearDownClass(cls):
+        del cls.wrapper, cls.static
+        torch.cuda.empty_cache()
+
+    def test_byte_table_reconstructs_text(self):
+        """La concatenación de bytes por token reproduce el UTF-8 original, incluidos caracteres partidos."""
+        for text in [PROMPT, "日本語のテキスト y emoji \U0001F600", "def f(x):\n\treturn x ** 2\n"]:
+            ids = self.wrapper.encode(text)[0].tolist()
+            data = b"".join(self.wrapper.unit_to_bytes(i) for i in ids)
+            self.assertEqual(data, text.encode("utf-8"))
+
+    def test_special_tokens_have_no_bytes(self):
+        for token_id in self.wrapper.eos_unit_ids + self.wrapper.tokenizer.all_special_ids:
+            self.assertEqual(self.wrapper.unit_to_bytes(token_id), b"")
+        # Identificadores de relleno de la matriz de embeddings, sin token asociado
+        self.assertEqual(self.wrapper.unit_to_bytes(self.wrapper.model.config.vocab_size - 1), b"")
+
+    def _assert_matches_hf_generate(self, wrapper):
+        config = GenerationConfig(max_new_bytes=64, temperature=0.0, ignore_eos=True, measure_time=False)
+        result = wrapper.generate(PROMPT, config)
+        input_ids = wrapper.encode(PROMPT)
+        with torch.inference_mode():
+            reference = wrapper.model.generate(
+                input_ids,
+                attention_mask=torch.ones_like(input_ids),
+                max_new_tokens=result.n_new_units,
+                do_sample=False,
+                eos_token_id=None,
+                pad_token_id=wrapper.eos_unit_ids[0],
+            )
+        expected = reference[0, input_ids.shape[1] :].cpu()
+        self.assertTrue(torch.equal(expected, result.output_ids))
+        self.assertGreaterEqual(result.n_new_bytes, 64)
+        self.assertGreater(result.bytes_per_unit, 1.0)
+
+    def test_greedy_matches_hf_generate(self):
+        """Caché dinámica con FlashAttention: misma secuencia voraz que ``model.generate``."""
+        self._assert_matches_hf_generate(self.wrapper)
+
+    def test_static_cache_greedy_matches_hf_generate(self):
+        """Caché estática con SDPA: misma secuencia voraz que ``model.generate`` (caché dinámica)."""
+        self._assert_matches_hf_generate(self.static)
+
+    def test_static_cache_capacity_is_enforced(self):
+        input_ids = self.static.encode(PROMPT)
+        state = self.static.allocate_state(batch_size=1, max_seqlen=input_ids.shape[1] - 1)
+        with torch.inference_mode(), self.assertRaises(RuntimeError):
+            self.static.prefill(input_ids, state)
+
+
+# ======================================================================
+# 3. Parada y muestreo de BaseModelWrapper (modelo ficticio, CPU)
 # ======================================================================
 
 # Vocabulario ficticio: unidades de 1 byte, una de 2 bytes y dos especiales
