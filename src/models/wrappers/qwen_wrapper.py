@@ -14,6 +14,14 @@ Diferencias respecto a la llamada directa a ``Qwen2ForCausalLM``:
   frente a H-Net, que emplea ``num_last_tokens=1``.
 - La posición en la caché se lleva en un contador de CPU y se pasa como
   ``cache_position``, evitando que el modelo la infiera a partir de la caché.
+- Con ``compact_rope=True`` (por defecto) las tablas de RoPE se recortan a la
+  longitud necesaria y se comparten entre capas. En 4.44.2 cada capa precalcula
+  sus propias tablas ``cos_cached``/``sin_cached`` para
+  ``max_position_embeddings`` posiciones (192 MiB en Qwen2.5-0.5B y 1792 MiB en
+  Qwen2.5-1.5B), memoria que no depende de la petición y falsearía la
+  comparación con H-Net. Las tablas recortadas se calculan igual que las
+  originales (fp32 en CPU y conversión a la precisión del modelo), por lo que
+  coinciden bit a bit con su prefijo.
 
 Contabilidad de bytes: cada token BPE a nivel de byte se traduce a los bytes
 UTF-8 exactos que representa mediante una tabla precalculada. Un carácter
@@ -32,6 +40,7 @@ from transformers.models.gpt2.tokenization_gpt2 import bytes_to_unicode
 from src.models.wrappers.base import BaseModelWrapper
 
 HF_ORGANIZATION = "Qwen"
+ROPE_GRANULARITY = 256    # las tablas de RoPE compactas crecen en múltiplos de este número de posiciones
 
 
 def resolve_checkpoint(checkpoint: str) -> str:
@@ -94,6 +103,10 @@ class QwenWrapper(BaseModelWrapper):
       ``flash_attention_2`` no enmascara las posiciones vacías de una caché
       estática, por lo que esta opción exige ``attn_implementation`` igual a
       ``"sdpa"`` o ``"eager"``.
+
+    ``compact_rope`` recorta y comparte entre capas las tablas de RoPE (véase la
+    documentación del módulo); ``False`` conserva el comportamiento original de
+    ``transformers``.
     """
 
     unit = "token"
@@ -104,6 +117,7 @@ class QwenWrapper(BaseModelWrapper):
         dtype: torch.dtype = torch.bfloat16,
         attn_implementation: Literal["flash_attention_2", "sdpa", "eager"] = "flash_attention_2",
         cache_implementation: Literal["dynamic", "static"] = "dynamic",
+        compact_rope: bool = True,
     ):
         super().__init__(device=device, dtype=dtype)
         if cache_implementation not in ("dynamic", "static"):
@@ -115,6 +129,8 @@ class QwenWrapper(BaseModelWrapper):
             )
         self.attn_implementation = attn_implementation
         self.cache_implementation = cache_implementation
+        self.compact_rope = compact_rope
+        self.rope_length: int | None = None   # posiciones de las tablas compactas; None sin compactar
         self.model_name: str | None = None
         self.tokenizer = None
         self._byte_table: list[bytes] = []
@@ -135,6 +151,9 @@ class QwenWrapper(BaseModelWrapper):
             repo_id, torch_dtype=self.dtype, attn_implementation=self.attn_implementation
         )
         self.model = model.to(self.device).eval()
+        self.rope_length = None
+        if self.compact_rope:
+            self._resize_rope_tables(ROPE_GRANULARITY)
 
         self._byte_table = build_byte_table(self.tokenizer, self.model.config.vocab_size)
 
@@ -145,6 +164,43 @@ class QwenWrapper(BaseModelWrapper):
         elif generation_eos is not None:
             eos_ids.update(generation_eos)
         self._eos_ids = sorted(i for i in eos_ids if i is not None)
+
+    def _rotary_modules(self) -> list[torch.nn.Module]:
+        return [layer.self_attn.rotary_emb for layer in self.model.model.layers]
+
+    def _resize_rope_tables(self, length: int) -> None:
+        """
+        Sustituye las tablas de RoPE de todas las capas por un único par de
+        tablas de ``length`` posiciones compartido entre ellas.
+
+        Se reproduce ``Qwen2RotaryEmbedding._set_cos_sin_cache``: el cálculo se
+        realiza en float32 sobre la CPU, como en la inicialización original, y
+        después se convierte a la precisión del modelo; el resultado es idéntico
+        bit a bit al prefijo de las tablas originales. Las referencias a las
+        tablas anteriores se liberan.
+        """
+        rotary = self._rotary_modules()
+        reference = rotary[0]
+        inv_freq = 1.0 / (
+            reference.base ** (torch.arange(0, reference.dim, 2, dtype=torch.int64).float() / reference.dim)
+        )
+        positions = torch.arange(length, dtype=torch.int64).type_as(inv_freq)
+        freqs = torch.outer(positions, inv_freq)
+        emb = torch.cat((freqs, freqs), dim=-1)
+        cos = emb.cos().to(self.dtype).to(self.device)
+        sin = emb.sin().to(self.dtype).to(self.device)
+        for module in rotary:
+            module.register_buffer("cos_cached", cos, persistent=False)
+            module.register_buffer("sin_cached", sin, persistent=False)
+            module.max_seq_len_cached = length
+        self.rope_length = length
+
+    def _ensure_rope_capacity(self, max_seqlen: int) -> None:
+        """Amplía las tablas compactas si ``max_seqlen`` supera su longitud actual."""
+        if self.rope_length is None or max_seqlen <= self.rope_length:
+            return
+        length = -(-max_seqlen // ROPE_GRANULARITY) * ROPE_GRANULARITY
+        self._resize_rope_tables(length)
 
     def encode(self, text: str) -> torch.Tensor:
         ids = self.tokenizer.encode(text)
@@ -160,6 +216,7 @@ class QwenWrapper(BaseModelWrapper):
         return self._eos_ids
 
     def allocate_state(self, batch_size: int, max_seqlen: int) -> Any:
+        self._ensure_rope_capacity(max_seqlen)
         if self.cache_implementation == "static":
             cache = StaticCache(
                 self.model.config,
@@ -200,4 +257,5 @@ class QwenWrapper(BaseModelWrapper):
             "model_name": self.model_name,
             "attn_implementation": self.attn_implementation,
             "cache_implementation": self.cache_implementation,
+            "rope_length": self.rope_length,
         }

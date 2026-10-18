@@ -12,7 +12,9 @@ Se agrupan en tres bloques:
 
 2. Baseline Qwen (``QwenWrapper``): la tabla de bytes reproduce el UTF-8 del
    texto y la generación voraz coincide con ``model.generate`` de
-   ``transformers``, tanto con caché dinámica como estática. Requieren GPU y
+   ``transformers``, tanto con caché dinámica como estática, y las tablas de
+   RoPE compactas coinciden bit a bit con las originales sin alterar la
+   generación. Requieren GPU y
    ``Qwen/Qwen2.5-0.5B`` en la caché local de Hugging Face.
 
 3. Condiciones de parada y muestreo de ``BaseModelWrapper.generate`` mediante un
@@ -264,10 +266,12 @@ class TestQwenWrapper(unittest.TestCase):
         cls.wrapper.load(QWEN_REPO)
         cls.static = QwenWrapper(device="cuda", attn_implementation="sdpa", cache_implementation="static")
         cls.static.load(QWEN_REPO)
+        cls.original = QwenWrapper(device="cuda", compact_rope=False)
+        cls.original.load(QWEN_REPO)
 
     @classmethod
     def tearDownClass(cls):
-        del cls.wrapper, cls.static
+        del cls.wrapper, cls.static, cls.original
         torch.cuda.empty_cache()
 
     def test_byte_table_reconstructs_text(self):
@@ -308,6 +312,46 @@ class TestQwenWrapper(unittest.TestCase):
     def test_static_cache_greedy_matches_hf_generate(self):
         """Caché estática con SDPA: misma secuencia voraz que ``model.generate`` (caché dinámica)."""
         self._assert_matches_hf_generate(self.static)
+
+    def _assert_rope_matches_original(self, wrapper):
+        reference = self.original.model.model.layers[0].self_attn.rotary_emb
+        length = wrapper.rope_length
+        for module in wrapper._rotary_modules():
+            self.assertEqual(module.max_seq_len_cached, length)
+            self.assertTrue(torch.equal(module.cos_cached, reference.cos_cached[:length]))
+            self.assertTrue(torch.equal(module.sin_cached, reference.sin_cached[:length]))
+
+    def test_compact_rope_tables_match_original(self):
+        """Las tablas compactas coinciden bit a bit con el prefijo de las originales y se comparten."""
+        self._assert_rope_matches_original(self.wrapper)
+        pointers = {m.cos_cached.data_ptr() for m in self.wrapper._rotary_modules()}
+        self.assertEqual(len(pointers), 1)
+        self.assertIsNone(self.original.rope_length)
+        self.assertEqual(self.original.model.model.layers[0].self_attn.rotary_emb.max_seq_len_cached,
+                         self.original.model.config.max_position_embeddings)
+
+    def test_compact_rope_tables_grow_on_demand(self):
+        """``allocate_state`` amplía las tablas hasta un múltiplo de la granularidad."""
+        from src.models.wrappers.qwen_wrapper import ROPE_GRANULARITY, QwenWrapper
+
+        wrapper = QwenWrapper(device="cuda")
+        wrapper.load(QWEN_REPO)
+        self.assertEqual(wrapper.rope_length, ROPE_GRANULARITY)
+        wrapper.allocate_state(batch_size=1, max_seqlen=ROPE_GRANULARITY + 1)
+        self.assertEqual(wrapper.rope_length, 2 * ROPE_GRANULARITY)
+        self._assert_rope_matches_original(wrapper)
+        wrapper.allocate_state(batch_size=1, max_seqlen=8)
+        self.assertEqual(wrapper.rope_length, 2 * ROPE_GRANULARITY)
+        del wrapper
+        torch.cuda.empty_cache()
+
+    def test_compact_rope_preserves_generation(self):
+        """La generación voraz es idéntica con tablas compactas y con las originales."""
+        config = GenerationConfig(max_new_bytes=600, temperature=0.0, ignore_eos=True, measure_time=False)
+        compact = self.wrapper.generate(PROMPT, config)
+        original = self.original.generate(PROMPT, config)
+        self.assertTrue(torch.equal(compact.output_ids, original.output_ids))
+        self.assertGreater(self.wrapper.rope_length, 256)
 
     def test_static_cache_capacity_is_enforced(self):
         input_ids = self.static.encode(PROMPT)
