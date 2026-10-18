@@ -1,0 +1,614 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Motor H-Net</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --text: #1c2230; --muted: #667085; --border: #dfe3ea;
+  --accent: #2f5bd3; --accent-text: #ffffff; --ok: #1f8a5b; --warn: #b54708; --err: #c0362c;
+  --seg-a: #e4ecff; --seg-b: #fdeccf; --seg-a-gen: #c9d8ff; --seg-b-gen: #f8d79e;
+  --code-bg: #f1f3f7;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151c; --panel: #1b1f29; --text: #e6e9ef; --muted: #98a2b3; --border: #2c3240;
+    --accent: #6e8ff0; --accent-text: #0d1220; --ok: #4cc38a; --warn: #f0a050; --err: #f07167;
+    --seg-a: #23314f; --seg-b: #3d3020; --seg-a-gen: #2f4677; --seg-b-gen: #5a4422;
+    --code-bg: #232836;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; overflow-wrap: anywhere; background: var(--bg); color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
+  padding: 14px 24px; background: var(--panel); border-bottom: 1px solid var(--border); }
+header h1 { font-size: 18px; margin: 0; }
+header .sub { color: var(--muted); font-size: 13px; }
+#status { display: flex; flex-wrap: wrap; gap: 8px; font-size: 13px; }
+.pill { padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); white-space: nowrap; }
+.pill b { color: var(--text); font-weight: 600; }
+nav { display: flex; gap: 4px; padding: 0 24px; overflow-x: auto; white-space: nowrap; background: var(--panel); border-bottom: 1px solid var(--border); }
+nav button { flex: 0 0 auto; background: none; border: none; border-bottom: 2px solid transparent; padding: 10px 14px;
+  color: var(--muted); font: inherit; cursor: pointer; }
+nav button.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+main { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 20px; padding: 20px 24px; max-width: 1500px; margin: 0 auto; }
+@media (max-width: 900px) { main, main.single { grid-template-columns: minmax(0, 1fr); padding: 16px; } header, nav { padding-left: 16px; padding-right: 16px; } }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; min-width: 0; }
+.card h2 { font-size: 15px; margin: 0 0 12px; }
+.card h3 { font-size: 14px; margin: 16px 0 8px; }
+label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+input[type=number], input[type=text], select, textarea { width: 100%; padding: 7px 9px; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; }
+textarea { min-height: 120px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.check { display: flex; align-items: center; gap: 8px; color: var(--text); margin-top: 10px; }
+.check input { width: auto; }
+.actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+button.primary, button.secondary { padding: 8px 16px; border-radius: 6px; font: inherit; cursor: pointer; border: 1px solid var(--accent); }
+button.primary { background: var(--accent); color: var(--accent-text); font-weight: 600; }
+button.secondary { background: transparent; color: var(--accent); }
+button:disabled { opacity: .5; cursor: default; }
+.hidden { display: none !important; }
+.output { white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13.5px; background: var(--code-bg); border-radius: 8px; padding: 12px; min-height: 90px; }
+.output .prompt { color: var(--muted); }
+.cursor::after { content: "\2588"; animation: blink 1s steps(1) infinite; color: var(--accent); }
+@keyframes blink { 50% { opacity: 0; } }
+.msg { font-size: 13px; color: var(--muted); margin: 8px 0; min-height: 1.4em; }
+.msg.error { color: var(--err); }
+.metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 12px; }
+.metric { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+.metric .k { font-size: 12px; color: var(--muted); }
+.metric .v { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.metric .v small { font-size: 12px; font-weight: 400; color: var(--muted); }
+.seg-level { margin-top: 10px; }
+.seg-level .title { font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+.seg-text { white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13.5px; line-height: 1.9; }
+.seg-text span { border-radius: 3px; padding: 1px 0; }
+.seg-text span.a { background: var(--seg-a); }
+.seg-text span.b { background: var(--seg-b); }
+.seg-text span.a.gen { background: var(--seg-a-gen); }
+.seg-text span.b.gen { background: var(--seg-b-gen); }
+.legend { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.compare-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+th:first-child, td:first-child { text-align: left; color: var(--muted); }
+.models-list label { display: flex; gap: 8px; align-items: center; color: var(--text); margin: 4px 0; }
+.models-list input { width: auto; }
+.models-list .tag { color: var(--muted); font-size: 12px; }
+.table-wrap { overflow-x: auto; }
+main.single { grid-template-columns: minmax(0, 1fr); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.chip { padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; background: transparent;
+  color: var(--muted); font: inherit; font-size: 12.5px; cursor: pointer; }
+.chip:hover { color: var(--text); border-color: var(--accent); }
+.seg-text span { border-left: 1px solid transparent; }
+.seg-text span + span { border-left-color: var(--muted); }
+.funnel { margin-top: 14px; }
+.funnel .frow { display: grid; grid-template-columns: 150px 1fr 120px; gap: 10px; align-items: center; font-size: 13px; margin: 4px 0; }
+.funnel .fbar { height: 14px; border-radius: 4px; background: var(--accent); min-width: 3px; }
+.funnel .fval { color: var(--muted); font-variant-numeric: tabular-nums; }
+.funnel .note { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.bars { margin: 14px 0 4px; }
+.bars .btitle { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.bars .brow { display: grid; grid-template-columns: 150px 1fr 90px; gap: 10px; align-items: center; font-size: 13px; margin: 3px 0; }
+.bars .bbar { height: 16px; border-radius: 4px; min-width: 3px; }
+.bars .bval { text-align: right; font-variant-numeric: tabular-nums; }
+.bars .hint { font-size: 12px; color: var(--muted); }
+.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 8px 28px; }
+.about h3 { margin-top: 22px; }
+.about p, .about li { max-width: 78ch; }
+.about ul { padding-left: 20px; }
+.diagram { overflow-x: auto; margin: 10px 0; }
+.diagram svg { display: block; min-width: 700px; width: 100%; height: auto; }
+.diagram text { fill: var(--text); font: 12.5px system-ui, sans-serif; }
+.diagram .muted { fill: var(--muted); font-size: 11.5px; }
+.diagram .box { fill: var(--panel); stroke: var(--border); stroke-width: 1.5; }
+.diagram .box.byte { fill: var(--seg-a); stroke: var(--accent); }
+.diagram .box.chunk { fill: var(--seg-b); stroke: var(--warn); }
+.diagram .line { stroke: var(--muted); stroke-width: 1.5; fill: none; }
+.diagram .skip { stroke: var(--accent); stroke-width: 1.5; fill: none; stroke-dasharray: 5 4; }
+.diagram marker path { fill: var(--muted); }
+.diagram .tok-a { fill: var(--seg-a); } .diagram .tok-b { fill: var(--seg-b); }
+.diagram .tok-a, .diagram .tok-b { stroke: var(--border); }
+.diagram .mono { font-family: ui-monospace, Menlo, monospace; }
+dl.glossary { display: grid; grid-template-columns: 190px 1fr; gap: 6px 16px; font-size: 14px; }
+dl.glossary dt { font-weight: 600; } dl.glossary dd { margin: 0; color: var(--muted); }
+@media (max-width: 700px) { dl.glossary { grid-template-columns: 1fr; } .funnel .frow, .bars .brow { grid-template-columns: 110px 1fr 80px; } }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Motor de inferencia H-Net</h1>
+    <div class="sub">Modelo de lenguaje sobre bytes con dynamic chunking frente a un Transformer con tokens BPE</div>
+  </div>
+  <div id="status"><span class="pill">Conectando...</span></div>
+</header>
+<nav>
+  <button data-tab="generate" class="active">Generación</button>
+  <button data-tab="compare">Comparación</button>
+  <button data-tab="segment">Segmentación</button>
+  <button data-tab="about">Cómo funciona</button>
+</nav>
+
+<main id="layout">
+  <aside class="card" id="sidebar">
+    <h2>Parámetros</h2>
+    <div data-show="generate segment">
+      <label for="model">Modelo</label>
+      <select id="model"></select>
+    </div>
+    <div data-show="compare" class="hidden">
+      <label>Modelos a comparar (en orden de ejecución)</label>
+      <div id="compare-models" class="models-list"></div>
+    </div>
+    <label for="prompt" id="prompt-label">Prompt</label>
+    <textarea id="prompt">It is a truth universally acknowledged, that a single man in possession of a good fortune</textarea>
+    <div class="chips" id="examples"></div>
+    <div data-show="generate compare">
+      <div class="row">
+        <div><label for="max_new_bytes">Bytes a generar</label><input id="max_new_bytes" type="number" min="1" value="200"></div>
+        <div><label for="temperature">Temperatura</label><input id="temperature" type="number" min="0" step="0.05" value="0.7"></div>
+      </div>
+      <div class="row">
+        <div><label for="top_p">Top-p</label><input id="top_p" type="number" min="0.01" max="1" step="0.05" value="0.9"></div>
+        <div><label for="top_k">Top-k</label><input id="top_k" type="number" min="0" value="0"></div>
+      </div>
+      <div class="row">
+        <div><label for="repetition_penalty">Penalización rep.</label><input id="repetition_penalty" type="number" min="1" step="0.05" value="1.1"></div>
+        <div><label for="seed">Semilla</label><input id="seed" type="number" value="0"></div>
+      </div>
+      <label for="stop">Secuencias de parada (separadas por |)</label>
+      <input id="stop" type="text" placeholder="p. ej. \n\n">
+      <label class="check"><input id="ignore_eos" type="checkbox"> Ignorar fin de secuencia</label>
+      <label class="check"><input id="show_segments" type="checkbox" checked> Mostrar segmentación</label>
+    </div>
+    <div class="actions">
+      <button class="primary" id="run">Generar</button>
+      <button class="secondary hidden" id="stop-btn">Detener</button>
+    </div>
+    <div class="msg" id="form-msg"></div>
+  </aside>
+
+  <section>
+    <!-- Generación -->
+    <div data-panel="generate" class="card">
+      <h2>Salida</h2>
+      <div class="msg" id="gen-msg">Introduzca un prompt y pulse Generar.</div>
+      <div class="output" id="gen-output"></div>
+      <div class="metrics" id="gen-metrics"></div>
+      <div id="gen-segments"></div>
+    </div>
+
+    <!-- Comparación -->
+    <div data-panel="compare" class="hidden">
+      <div class="compare-grid" id="cmp-columns"></div>
+      <div class="card hidden" id="cmp-summary" style="margin-top:16px">
+        <h2>Resumen</h2>
+        <div class="charts" id="cmp-charts"></div>
+        <div class="table-wrap"><table id="cmp-table"></table></div>
+        <div class="legend">Las velocidades de decodificación se expresan en bytes UTF-8 por segundo, comparables entre modelos;
+          las unidades nativas son bytes en H-Net y tokens BPE en Qwen. Ejecución secuencial con batch = 1 en la misma GPU.</div>
+      </div>
+    </div>
+
+
+    <!-- Cómo funciona -->
+    <div data-panel="about" class="card about hidden">
+      <h2>Cómo funciona H-Net</h2>
+      <p>Los modelos de lenguaje habituales dividen el texto en tokens mediante un tokenizador fijo (BPE). H-Net trabaja directamente sobre
+        bytes y <b>aprende</b> dónde agrupar la secuencia: una red de enrutamiento (<i>routing</i>) decide, byte a byte, si comienza un nuevo
+        <b>chunk</b>. La parte más costosa del modelo opera únicamente sobre los chunks, que son menos que los bytes originales.</p>
+
+      <h3>Flujo de un paso (configuración con una etapa de chunking)</h3>
+      <div class="diagram">
+        <svg viewBox="0 0 900 290" role="img" aria-label="Diagrama del flujo de H-Net">
+          <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z"/></marker></defs>
+          <text x="10" y="18" class="muted">Resolución de byte (L posiciones)</text>
+          <text x="440" y="18" class="muted">Resolución de chunk (K &lt; L)</text>
+          <rect x="436" y="28" width="158" height="96" rx="10" fill="none" stroke="var(--warn)" stroke-dasharray="6 4"/>
+          <rect x="10" y="48" width="92" height="64" rx="8" class="box byte"/><text x="56" y="76" text-anchor="middle">Bytes</text><text x="56" y="94" text-anchor="middle" class="muted">256 valores</text>
+          <rect x="130" y="48" width="130" height="64" rx="8" class="box byte"/><text x="195" y="74" text-anchor="middle">Encoder</text><text x="195" y="92" text-anchor="middle" class="muted">Mamba-2 + atención</text>
+          <rect x="318" y="48" width="104" height="64" rx="8" class="box"/><text x="370" y="74" text-anchor="middle">Routing</text><text x="370" y="92" text-anchor="middle" class="muted">¿frontera?</text>
+          <rect x="450" y="48" width="130" height="64" rx="8" class="box chunk"/><text x="515" y="74" text-anchor="middle">Red principal</text><text x="515" y="92" text-anchor="middle" class="muted">solo sobre chunks</text>
+          <rect x="628" y="48" width="110" height="64" rx="8" class="box byte"/><text x="683" y="74" text-anchor="middle">Dechunk</text><text x="683" y="92" text-anchor="middle" class="muted">vuelta a L bytes</text>
+          <rect x="766" y="48" width="124" height="64" rx="8" class="box byte"/><text x="828" y="74" text-anchor="middle">Decoder</text><text x="828" y="92" text-anchor="middle" class="muted">+ cabeza LM</text>
+          <path class="line" marker-end="url(#arr)" d="M102 80H128"/><path class="line" marker-end="url(#arr)" d="M260 80H316"/>
+          <path class="line" marker-end="url(#arr)" d="M422 80H448"/><path class="line" marker-end="url(#arr)" d="M580 80H626"/>
+          <path class="line" marker-end="url(#arr)" d="M738 80H764"/>
+          <path class="skip" marker-end="url(#arr)" d="M195 112V200H683V114"/>
+          <text x="440" y="194" text-anchor="middle" class="muted">conexión residual (se combina tras el dechunk)</text>
+          <text x="828" y="136" text-anchor="middle" class="muted">logits (L, 256)</text>
+          <path class="line" marker-end="url(#arr)" d="M828 112V122"/>
+          <text x="10" y="232">Ejemplo de agrupación:</text>
+          <g class="mono" font-size="13">
+            <rect x="10" y="242" width="38" height="30" rx="4" class="tok-a"/><text x="29" y="262" text-anchor="middle">The</text>
+            <rect x="52" y="242" width="86" height="30" rx="4" class="tok-b"/><text x="95" y="262" text-anchor="middle">&#160;capital</text>
+            <rect x="142" y="242" width="38" height="30" rx="4" class="tok-a"/><text x="161" y="262" text-anchor="middle">&#160;of</text>
+            <rect x="184" y="242" width="74" height="30" rx="4" class="tok-b"/><text x="221" y="262" text-anchor="middle">&#160;France</text>
+          </g>
+          <text x="280" y="262" class="muted">Ejemplo ilustrativo: 21 bytes en 4 chunks; la red principal procesaría 4 posiciones en lugar de 21.</text>
+        </svg>
+      </div>
+      <p>Con dos etapas (<code>hnet_2stage_L</code>) el proceso se repite de forma anidada: los chunks de la primera etapa se agrupan de nuevo, de modo que la
+        red más interna opera sobre unidades del tamaño de palabras o frases. La frontera se decide comparando estados adyacentes (disimilitud coseno): si
+        dos bytes consecutivos son muy distintos para el modelo, se abre un chunk nuevo. Los pesos usados aquí fueron preentrenados por sus autores, por lo que
+        las fronteras reflejan lo aprendido y no reglas fijas; puede comprobarse en la pestaña Segmentación.</p>
+
+      <h3>Arquitectura del servicio</h3>
+      <div class="diagram">
+        <svg viewBox="0 0 900 150" role="img" aria-label="Arquitectura del servicio de inferencia">
+          <rect x="10" y="40" width="120" height="64" rx="8" class="box"/><text x="70" y="68" text-anchor="middle">Navegador</text><text x="70" y="86" text-anchor="middle" class="muted">esta página</text>
+          <rect x="170" y="40" width="130" height="64" rx="8" class="box"/><text x="235" y="68" text-anchor="middle">API FastAPI</text><text x="235" y="86" text-anchor="middle" class="muted">REST + SSE</text>
+          <rect x="340" y="40" width="130" height="64" rx="8" class="box"/><text x="405" y="68" text-anchor="middle">Cola FIFO</text><text x="405" y="86" text-anchor="middle" class="muted">una petición a la vez</text>
+          <rect x="510" y="40" width="150" height="64" rx="8" class="box chunk"/><text x="585" y="68" text-anchor="middle">Hilo de GPU</text><text x="585" y="86" text-anchor="middle" class="muted">bucle de generación</text>
+          <rect x="700" y="14" width="190" height="52" rx="8" class="box byte"/><text x="795" y="36" text-anchor="middle">H-Net (bytes)</text><text x="795" y="53" text-anchor="middle" class="muted">1 modelo en VRAM</text>
+          <rect x="700" y="80" width="190" height="52" rx="8" class="box"/><text x="795" y="102" text-anchor="middle">Qwen2.5 (tokens BPE)</text><text x="795" y="119" text-anchor="middle" class="muted">baseline, se intercambia</text>
+          <path class="line" marker-end="url(#arr)" d="M130 72H168"/><path class="line" marker-end="url(#arr)" d="M300 72H338"/>
+          <path class="line" marker-end="url(#arr)" d="M470 72H508"/><path class="line" marker-end="url(#arr)" d="M660 60L698 44"/><path class="line" marker-end="url(#arr)" d="M660 84L698 104"/>
+          <path class="skip" marker-end="url(#arr)" d="M585 104V138H235V106"/>
+          <text x="410" y="132" text-anchor="middle" class="muted">bytes generados, emitidos como eventos delta</text>
+        </svg>
+      </div>
+
+      <h3>Cómo interpretar las métricas</h3>
+      <dl class="glossary">
+        <dt>TTFT</dt><dd>Tiempo hasta la primera unidad generada: coste del prefill, que procesa el prompt completo.</dd>
+        <dt>Decodificación (B/s)</dt><dd>Bytes UTF-8 generados por segundo tras la primera unidad. Es comparable entre modelos aunque la unidad nativa sea distinta.</dd>
+        <dt>Unidades/s</dt><dd>Bytes por segundo en H-Net y tokens por segundo en Qwen. Multiplicadas por los bytes por unidad dan los B/s.</dd>
+        <dt>Bytes por unidad</dt><dd>Siempre 1 en H-Net; en Qwen, el tamaño medio de un token (alrededor de 4 para texto en inglés).</dd>
+        <dt>Compresión por etapa</dt><dd>Unidades de entrada divididas entre chunks de salida. Cuanto mayor, menos posiciones procesa la red interna.</dd>
+        <dt>Pico de VRAM</dt><dd>Memoria máxima ocupada por tensores durante la petición (<code>max_memory_allocated</code>), incluidos los pesos del modelo.</dd>
+      </dl>
+      <p class="legend">Las cifras de esta página son orientativas: la instrumentación de la demo añade un pequeño coste. Las mediciones reproducibles para el
+        informe se obtienen con los scripts de <code>scripts/</code>.</p>
+    </div>
+
+    <!-- Segmentación -->
+    <div data-panel="segment" class="card hidden">
+      <h2>Segmentación del texto</h2>
+      <div class="msg" id="seg-msg">Se muestra cómo divide el modelo el texto: chunks aprendidos por etapa en H-Net, tokens BPE en Qwen.</div>
+      <div id="seg-result"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = (sel) => document.querySelector(sel);
+let tab = "generate";
+let controller = null;
+let catalog = [];
+
+// ---------------------------------------------------------------- utilidades
+const fmt = (v, digits = 1) => (v === null || v === undefined) ? "-" : Number(v).toLocaleString("es-ES", { maximumFractionDigits: digits, minimumFractionDigits: digits });
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+async function api(path, body) {
+  const res = await fetch(path, body === undefined ? {} : {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(errorText(data, res));
+  return data;
+}
+
+function errorText(data, res) {
+  if (typeof data.detail === "string") return data.detail;
+  if (Array.isArray(data.detail)) return data.detail.map((d) => `${(d.loc || []).slice(1).join(".")}: ${d.msg}`).join("; ");
+  return `Error ${res.status}`;
+}
+
+async function streamSSE(path, body, onEvent, signal) {
+  const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal });
+  if (!res.ok) throw new Error(errorText(await res.json().catch(() => ({})), res));
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let idx;
+    while ((idx = buffer.indexOf("\n\n")) >= 0) {
+      const raw = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+      let event = "message", data = "";
+      for (const line of raw.split("\n")) {
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        else if (line.startsWith("data:")) data += line.slice(5).trim();
+      }
+      onEvent(event, data ? JSON.parse(data) : {});
+    }
+  }
+}
+
+function params() {
+  const stops = $("#stop").value.split("|").map((s) => s.replace(/\\n/g, "\n").replace(/\\t/g, "\t")).filter((s) => s.length);
+  const seed = $("#seed").value.trim();
+  return {
+    prompt: $("#prompt").value,
+    max_new_bytes: Number($("#max_new_bytes").value),
+    temperature: Number($("#temperature").value),
+    top_p: Number($("#top_p").value),
+    top_k: Number($("#top_k").value),
+    repetition_penalty: Number($("#repetition_penalty").value),
+    seed: seed === "" ? null : Number(seed),
+    stop_sequences: stops,
+    ignore_eos: $("#ignore_eos").checked,
+    segment: $("#show_segments").checked,
+  };
+}
+
+// ---------------------------------------------------------------- estado
+async function refreshStatus() {
+  try {
+    const s = await api("/status");
+    const parts = [];
+    parts.push(`<span class="pill">Modelo: <b>${s.model ? esc(s.model.model) : "ninguno"}</b></span>`);
+    if (s.gpu) parts.push(`<span class="pill">${esc(s.gpu.name)}: <b>${fmt(s.gpu.used_mib / 1024, 2)}</b> / ${fmt(s.gpu.total_mib / 1024, 1)} GiB</span>`);
+    parts.push(`<span class="pill">En cola: <b>${s.pending_requests}</b></span>`);
+    parts.push(`<span class="pill">Atendidas: <b>${s.served_requests}</b></span>`);
+    $("#status").innerHTML = parts.join("");
+    const loaded = s.model && s.model.model;
+    if (loaded && $("#model").value !== loaded && !controller) $("#model").value = loaded;
+  } catch {
+    $("#status").innerHTML = `<span class="pill">Servidor no disponible</span>`;
+  }
+}
+
+async function loadCatalog() {
+  catalog = await api("/models");
+  const usable = catalog.filter((m) => m.cached);
+  $("#model").innerHTML = catalog.map((m) =>
+    `<option value="${esc(m.name)}" ${m.cached ? "" : "disabled"} ${m.loaded ? "selected" : ""}>${esc(m.name)}${m.cached ? "" : " (no descargado)"}</option>`).join("");
+  const defaults = new Set(["hnet_1stage_L", "Qwen2.5-0.5B"]);
+  $("#compare-models").innerHTML = usable.map((m) =>
+    `<label><input type="checkbox" value="${esc(m.name)}" ${defaults.has(m.name) ? "checked" : ""}> ${esc(m.name)} <span class="tag">${m.family === "hnet" ? "bytes" : "tokens"}</span></label>`).join("");
+}
+
+// ---------------------------------------------------------------- ejemplos
+const EXAMPLES = [
+  ["Inglés", "It is a truth universally acknowledged, that a single man in possession of a good fortune"],
+  ["Español", "En un lugar de la Mancha, de cuyo nombre no quiero acordarme, no ha mucho tiempo que vivía un hidalgo"],
+  ["Código", "def fibonacci(n):\n    if n < 2:\n        return n\n    return fibonacci(n - 1) + fibonacci(n - 2)\n\nprint("],
+  ["Unicode", "Ñandú, café, 日本語 y emoji \u{1F600}: ¿cómo se agrupan los bytes multibyte?"],
+  ["Números", "The numbers 3.14159 and 2024-10-18 appear in 1234567 rows of data."],
+];
+$("#examples").innerHTML = EXAMPLES.map(([name], i) => `<button class="chip" data-i="${i}" type="button">${name}</button>`).join("");
+$("#examples").addEventListener("click", (e) => {
+  const chip = e.target.closest(".chip");
+  if (chip && !controller) $("#prompt").value = EXAMPLES[chip.dataset.i][1];
+});
+
+// ---------------------------------------------------------------- pestañas
+function setTab(name) {
+  tab = name;
+  $("#sidebar").classList.toggle("hidden", name === "about");
+  $("#layout").classList.toggle("single", name === "about");
+  document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
+  document.querySelectorAll("[data-panel]").forEach((p) => p.classList.toggle("hidden", p.dataset.panel !== name));
+  document.querySelectorAll("[data-show]").forEach((el) => el.classList.toggle("hidden", !el.dataset.show.split(" ").includes(name)));
+  $("#run").textContent = { generate: "Generar", compare: "Comparar", segment: "Segmentar" }[name] || "";
+  $("#prompt-label").textContent = name === "segment" ? "Texto" : "Prompt";
+}
+document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => !controller && setTab(b.dataset.tab)));
+
+// ---------------------------------------------------------------- representación
+function metricsHTML(r) {
+  const items = [
+    ["TTFT", `${fmt(r.ttft_ms, 0)} <small>ms</small>`],
+    ["Decodificación", `${fmt(r.decode_bytes_per_s)} <small>B/s</small>`],
+    [r.unit === "byte" ? "Unidades (bytes)/s" : "Tokens/s", `${fmt(r.decode_units_per_s)} <small>u/s</small>`],
+    ["Bytes por unidad", fmt(r.bytes_per_unit, 2)],
+    ["Generado", `${r.n_new_bytes} <small>B / ${r.n_new_units} u</small>`],
+    ["Prompt", `${r.n_prompt_bytes} <small>B / ${r.n_prompt_units} u</small>`],
+    ["Pico de VRAM", `${fmt(r.peak_vram_mib, 0)} <small>MiB</small>`],
+    ["Tiempo total", `${fmt(r.wall_time_s, 2)} <small>s</small>`],
+    ["Parada", { max_bytes: "límite", eos: "fin de secuencia", stop_unit: "unidad de parada", stop_sequence: "secuencia de parada" }[r.stop_reason] || r.stop_reason],
+  ];
+  const comp = r.extra && r.extra.prefill_compression_per_stage;
+  if (comp) {
+    comp.forEach((c, i) => items.push([`Compresión etapa ${i + 1} (prompt)`, `${fmt(c, 2)} <small>u/chunk</small>`]));
+    (r.extra.decode_compression_per_stage || []).forEach((c, i) => items.push([`Compresión etapa ${i + 1} (generado)`, `${fmt(c, 2)} <small>u/chunk</small>`]));
+  }
+  return items.map(([k, v]) => `<div class="metric"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
+}
+
+// Embudo de compresión: cada etapa de H-Net reduce el número de posiciones que procesa la red interna
+function funnelHTML(r) {
+  const x = r.extra || {};
+  if (!x.prefill_chunks_per_stage || !x.prefill_units) return "";
+  const rows = [["Bytes del prompt", x.prefill_units, null]];
+  x.prefill_chunks_per_stage.forEach((c, i) => rows.push([`Chunks, etapa ${i + 1}`, c, x.prefill_compression_per_stage[i]]));
+  const max = x.prefill_units;
+  const body = rows.map(([name, n, ratio]) =>
+    `<div class="frow"><span>${name}</span><span><div class="fbar" style="width:${Math.max(1, 100 * n / max)}%"></div></span>` +
+    `<span class="fval">${n}${ratio ? ` (÷${fmt(ratio, 2)})` : ""}</span></div>`).join("");
+  return `<div class="funnel"><h3>Compresión del prompt</h3>${body}` +
+    `<div class="note">La red principal solo procesa las posiciones de la última fila. Incluye el byte BOS que H-Net antepone al prompt.</div></div>`;
+}
+
+function barsHTML(title, hint, items, digits = 1) {
+  const valid = items.filter((i) => i.value !== null && i.value !== undefined);
+  if (!valid.length) return "";
+  const max = Math.max(...valid.map((i) => i.value)) || 1;
+  const rows = items.map((i) =>
+    `<div class="brow"><span>${esc(i.label)}</span><span><div class="bbar" style="width:${Math.max(1, 100 * (i.value || 0) / max)}%;background:${i.color}"></div></span>` +
+    `<span class="bval">${fmt(i.value, digits)}</span></div>`).join("");
+  return `<div class="bars"><div class="btitle">${title}</div>${rows}<div class="hint">${hint}</div></div>`;
+}
+
+function segmentsHTML(seg, promptLength) {
+  if (!seg) return "";
+  const levels = seg.levels.map((level) => {
+    let pos = 0;
+    const spans = level.segments.map((s, i) => {
+      const gen = promptLength !== null && pos >= promptLength ? " gen" : "";
+      pos += s.length;
+      const nbytes = new TextEncoder().encode(s).length;
+      return `<span class="${i % 2 ? "b" : "a"}${gen}" title="${nbytes} bytes">${esc(s)}</span>`;
+    }).join("");
+    return `<div class="seg-level"><div class="title">${esc(level.name)}: ${level.n_units} unidades, ${fmt(level.bytes_per_unit, 2)} bytes por unidad</div><div class="seg-text">${spans}</div></div>`;
+  }).join("");
+  const legend = promptLength !== null ? `<div class="legend">Colores alternos: unidades consecutivas. Tono más intenso: texto generado.</div>` : "";
+  return `<h3>Segmentación (${seg.n_bytes} bytes)</h3>${levels}${legend}`;
+}
+
+function outputView(el) {
+  return {
+    reset(prompt) { el.innerHTML = `<span class="prompt">${esc(prompt)}</span><span class="gen cursor"></span>`; },
+    append(text) { el.querySelector(".gen").textContent += text; },
+    finish(text) { const g = el.querySelector(".gen"); g.textContent = text; g.classList.remove("cursor"); },
+    stop() { const g = el.querySelector(".gen"); if (g) g.classList.remove("cursor"); },
+  };
+}
+
+// ---------------------------------------------------------------- acciones
+async function runGenerate(signal) {
+  const body = { ...params(), model: $("#model").value };
+  const view = outputView($("#gen-output"));
+  view.reset(body.prompt);
+  $("#gen-metrics").innerHTML = "";
+  $("#gen-segments").innerHTML = "";
+  $("#gen-msg").textContent = "En cola...";
+  let model = "", nbytes = 0;
+  const encoder = new TextEncoder();
+  await streamSSE("/generate/stream", body, (event, data) => {
+    if (event === "status") $("#gen-msg").textContent = data.message;
+    else if (event === "start") { model = data.model; $("#gen-msg").textContent = `Generando con ${model}...`; }
+    else if (event === "delta") {
+      view.append(data.text);
+      nbytes += encoder.encode(data.text).length;
+      $("#gen-msg").textContent = `Generando con ${model}: ${nbytes} bytes`;
+    }
+    else if (event === "error") throw new Error(data.message);
+    else if (event === "done") {
+      const r = data.report;
+      view.finish(r.text);
+      $("#gen-msg").textContent = `Completado con ${r.model}.`;
+      $("#gen-metrics").innerHTML = metricsHTML(r);
+      $("#gen-segments").innerHTML = funnelHTML(r) + segmentsHTML(r.segmentation, body.prompt.length);
+    }
+  }, signal);
+}
+
+async function runCompare(signal) {
+  const models = [...document.querySelectorAll("#compare-models input:checked")].map((i) => i.value);
+  if (!models.length) throw new Error("Debe seleccionarse al menos un modelo.");
+  const body = { ...params(), models };
+  const reports = [];
+  $("#cmp-summary").classList.add("hidden");
+  $("#cmp-columns").innerHTML = models.map((m, i) => `
+    <div class="card" id="cmp-${i}">
+      <h2>${esc(m)}</h2>
+      <div class="msg">En espera.</div>
+      <div class="output"></div>
+      <div class="metrics"></div>
+      <div class="segs"></div>
+    </div>`).join("");
+  const views = models.map((_, i) => outputView($(`#cmp-${i} .output`)));
+  views.forEach((v) => { v.reset(body.prompt); v.stop(); });
+  await streamSSE("/compare/stream", body, (event, data) => {
+    const col = data.index !== undefined ? $(`#cmp-${data.index}`) : null;
+    if (event === "model") { views[data.index].reset(body.prompt); col.querySelector(".msg").textContent = "Preparando..."; }
+    else if (event === "status") col.querySelector(".msg").textContent = data.message;
+    else if (event === "start") col.querySelector(".msg").textContent = "Generando...";
+    else if (event === "delta") views[data.index].append(data.text);
+    else if (event === "error") { views[data.index].stop(); col.querySelector(".msg").textContent = data.message; col.querySelector(".msg").classList.add("error"); }
+    else if (event === "done") {
+      const r = data.report;
+      reports[data.index] = r;
+      views[data.index].finish(r.text);
+      col.querySelector(".msg").textContent = "Completado.";
+      col.querySelector(".metrics").innerHTML = metricsHTML(r);
+      col.querySelector(".segs").innerHTML = funnelHTML(r) + segmentsHTML(r.segmentation, body.prompt.length);
+    } else if (event === "end") renderSummary(models, reports);
+  }, signal);
+}
+
+function renderSummary(models, reports) {
+  const rows = [
+    ["Parámetros", null],
+    ["TTFT (ms)", (r) => fmt(r.ttft_ms, 0)],
+    ["Decodificación (B/s)", (r) => fmt(r.decode_bytes_per_s)],
+    ["Unidades nativas/s", (r) => fmt(r.decode_units_per_s)],
+    ["Bytes por unidad generada", (r) => fmt(r.bytes_per_unit, 2)],
+    ["Unidades del prompt", (r) => r.n_prompt_units],
+    ["Bytes por unidad del prompt", (r) => fmt(r.n_prompt_bytes / r.n_prompt_units, 2)],
+    ["Pico de VRAM (MiB)", (r) => fmt(r.peak_vram_mib, 0)],
+    ["Tiempo total (s)", (r) => fmt(r.wall_time_s, 2)],
+  ];
+  const head = `<tr><th>Métrica</th>${models.map((m) => `<th>${esc(m)}</th>`).join("")}</tr>`;
+  const params = Object.fromEntries(catalog.map((m) => [m.name, m]));
+  const body = rows.map(([name, f]) => {
+    const cells = models.map((m, i) => {
+      if (f === null) return `<td>${esc(params[m] ? params[m].family === "hnet" ? "H-Net" : "Qwen2.5" : "-")}</td>`;
+      return `<td>${reports[i] ? f(reports[i]) : "-"}</td>`;
+    }).join("");
+    return `<tr><td>${f === null ? "Familia" : name}</td>${cells}</tr>`;
+  }).join("");
+  $("#cmp-table").innerHTML = head + body;
+  const palette = ["var(--accent)", "var(--warn)", "var(--ok)", "var(--err)"];
+  const series = (get) => models.map((m, i) => ({ label: m, value: reports[i] ? get(reports[i]) : null, color: palette[i % palette.length] }));
+  $("#cmp-charts").innerHTML =
+    barsHTML("Velocidad de decodificación (B/s)", "Más es mejor. Bytes UTF-8 por segundo.", series((r) => r.decode_bytes_per_s)) +
+    barsHTML("Tiempo hasta la primera unidad (ms)", "Menos es mejor. Coste del prefill del prompt.", series((r) => r.ttft_ms), 0) +
+    barsHTML("Pico de VRAM (MiB)", "Menos es mejor. Incluye los pesos del modelo.", series((r) => r.peak_vram_mib), 0) +
+    barsHTML("Bytes por unidad del prompt", "Mayor valor implica menos posiciones para el mismo texto.", series((r) => r.n_prompt_bytes / r.n_prompt_units), 2);
+  $("#cmp-summary").classList.remove("hidden");
+}
+
+async function runSegment() {
+  const chosen = $("#model").value;
+  const loaded = catalog.find((m) => m.loaded);
+  $("#seg-msg").textContent = loaded && loaded.name === chosen ? "Calculando..." : `Cargando ${chosen} (puede tardar unos segundos)...`;
+  $("#seg-result").innerHTML = "";
+  const seg = await api("/segment", { text: $("#prompt").value, model: $("#model").value });
+  $("#seg-msg").textContent = `Segmentación con ${chosen}.`;
+  catalog.forEach((m) => { m.loaded = m.name === chosen; });
+  $("#seg-result").innerHTML = segmentsHTML(seg, null);
+}
+
+$("#run").addEventListener("click", async () => {
+  $("#form-msg").textContent = "";
+  $("#form-msg").classList.remove("error");
+  controller = new AbortController();
+  $("#run").disabled = true;
+  $("#stop-btn").classList.toggle("hidden", tab === "segment");
+  const statusTimer = setInterval(refreshStatus, 1000);
+  try {
+    if (tab === "generate") await runGenerate(controller.signal);
+    else if (tab === "compare") await runCompare(controller.signal);
+    else await runSegment();
+  } catch (err) {
+    if (err.name !== "AbortError") {
+      $("#form-msg").textContent = err.message;
+      $("#form-msg").classList.add("error");
+    } else {
+      $("#form-msg").textContent = "Generación detenida.";
+    }
+    document.querySelectorAll(".cursor").forEach((c) => c.classList.remove("cursor"));
+  } finally {
+    clearInterval(statusTimer);
+    controller = null;
+    $("#run").disabled = false;
+    $("#stop-btn").classList.add("hidden");
+    refreshStatus();
+  }
+});
+$("#stop-btn").addEventListener("click", () => controller && controller.abort());
+
+const TABS = ["generate", "compare", "segment", "about"];
+const initialTab = location.hash.slice(1);
+if (TABS.includes(initialTab)) setTab(initialTab);
+window.addEventListener("hashchange", () => { const t = location.hash.slice(1); if (!controller && TABS.includes(t)) setTab(t); });
+loadCatalog().then(refreshStatus);
+setInterval(() => !controller && refreshStatus(), 5000);
+</script>
+</body>
+</html>

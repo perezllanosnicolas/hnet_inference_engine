@@ -153,6 +153,28 @@ class HNetWrapper(BaseModelWrapper):
             self._decode_steps += 1
         return output.logits[:, -1]
 
+    @torch.inference_mode()
+    def segment(self, text: str) -> list[list[int]]:
+        """
+        Devuelve, por etapa, los desplazamientos en bytes de ``text`` donde comienza cada chunk.
+
+        Se ejecuta un forward completo en modo empaquetado (sin caché), cuyas
+        fronteras coinciden con las de la generación incremental. Las máscaras
+        de la etapa ``s`` se expresan sobre los chunks de la etapa ``s - 1``,
+        por lo que se componen para traducirlas a posiciones de byte. El byte
+        BOS antepuesto se descarta.
+        """
+        input_ids = self.encode(text)
+        output = self.model(input_ids, num_last_tokens=1)
+        positions = torch.arange(input_ids.shape[1], device=self.device)
+        offset = 1 if self.add_bos else 0
+        stages = []
+        for bpred in output.bpred_output:
+            positions = positions[bpred.boundary_mask.flatten()]
+            starts = positions[positions >= offset] - offset
+            stages.append(starts.tolist())
+        return stages
+
     def collect_extra(self, state: Any) -> dict:
         if not self.track_boundaries:
             return {}

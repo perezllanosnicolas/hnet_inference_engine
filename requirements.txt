@@ -42,3 +42,15 @@ huggingface-hub>=0.23.2,<1.0
 einops==0.8.2
 # Requerido por isotropic.py; sin versión fijada.
 optree
+
+# API REST y servidor
+# fastapi >= 0.141 añade la dependencia opentelemetry-api; se fija la última
+# versión sin ella. anyio, h11, click y typing-extensions ya están presentes.
+fastapi==0.140.13
+starlette==1.8.0
+uvicorn==0.54.0
+pydantic==2.14.1
+pydantic-core==2.50.1
+annotated-types==0.8.0
+annotated-doc==0.0.5
+typing-inspection==0.4.4

@@ -199,6 +199,19 @@ class TestHNetIncrementalCheckpoint(_CoherenceAssertions, unittest.TestCase):
     def test_prefill_step_matches_full_forward(self):
         self.assert_coherent(self.wrapper.model, self.input_ids, self.dtype)
 
+    def test_segment_matches_prefill_boundaries(self):
+        # segment() descarta el BOS, que siempre abre el primer chunk de cada etapa
+        starts = self.wrapper.segment(PROMPT)
+        with torch.inference_mode():
+            state = self.wrapper.allocate_state(1, self.input_ids.shape[1] + 1)
+            self.wrapper.prefill(self.input_ids, state)
+        chunks = [int(c.item()) for c in self.wrapper._prefill_chunks]
+        self.assertEqual([len(s) + 1 for s in starts], chunks)
+        n_bytes = len(PROMPT.encode("utf-8"))
+        for stage in starts:
+            self.assertEqual(stage, sorted(stage))
+            self.assertTrue(all(0 <= p < n_bytes for p in stage))
+
     def test_wrapper_greedy_matches_full_forward(self):
         """La generación voraz del wrapper coincide con el argmax del forward completo."""
         config = GenerationConfig(max_new_bytes=24, temperature=0.0, ignore_eos=True, measure_time=False)

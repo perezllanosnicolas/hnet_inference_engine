@@ -23,7 +23,7 @@ y afecta por igual a todos los modelos.
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 import torch
 
@@ -174,6 +174,23 @@ class BaseModelWrapper(ABC):
     def num_parameters(self) -> int:
         return sum(p.numel() for p in self.model.parameters())
 
+    def segment(self, text: str) -> list[list[int]]:
+        """
+        Devuelve, por nivel de segmentación, los desplazamientos en bytes donde comienza cada unidad.
+
+        La implementación por defecto contiene un único nivel: las unidades
+        nativas producidas por ``encode`` (tokens BPE en Qwen). Las unidades
+        especiales, que no representan bytes, se omiten. H-Net la redefine para
+        devolver las fronteras de chunk de cada etapa.
+        """
+        starts, offset = [], 0
+        for unit_id in self.encode(text)[0].tolist():
+            data = self.unit_to_bytes(int(unit_id))
+            if data:
+                starts.append(offset)
+                offset += len(data)
+        return [starts]
+
     @staticmethod
     def apply_repetition_penalty(
         logits: torch.Tensor, seen: torch.Tensor, penalty: float
@@ -209,7 +226,12 @@ class BaseModelWrapper(ABC):
         return torch.multinomial(probs, num_samples=1, generator=generator)
 
     @torch.inference_mode()
-    def generate(self, prompt: str, config: GenerationConfig) -> GenerationResult:
+    def generate(
+        self,
+        prompt: str,
+        config: GenerationConfig,
+        on_bytes: Callable[[bytes], None] | None = None,
+    ) -> GenerationResult:
         """
         Genera texto a partir de un único prompt (B = 1).
 
@@ -218,6 +240,13 @@ class BaseModelWrapper(ABC):
         una unidad de fin de secuencia o de parada, o al completarse una
         secuencia de parada. Las secuencias de parada se excluyen de ``text``
         pero se contabilizan en ``n_new_bytes``.
+
+        ``on_bytes``, si se indica, recibe los bytes de cada unidad generada en
+        cuanto se conocen (las unidades de fin de secuencia y de parada no se
+        notifican). Permite el streaming sin duplicar el bucle; se invoca tras
+        la sincronización ya existente de cada paso, por lo que no añade
+        sincronizaciones, aunque su coste de CPU se incluye en ``decode_time_s``.
+        Una excepción lanzada desde ``on_bytes`` interrumpe la generación.
         """
         if self.model is None:
             raise RuntimeError("El modelo no está cargado: debe invocarse load() antes de generate().")
@@ -270,7 +299,10 @@ class BaseModelWrapper(ABC):
                 stop_reason = "stop_unit"
                 break
 
-            generated_bytes += self.unit_to_bytes(next_id)
+            unit_bytes = self.unit_to_bytes(next_id)
+            generated_bytes += unit_bytes
+            if on_bytes is not None and unit_bytes:
+                on_bytes(unit_bytes)
             matched = next((s for s in stop_seqs if generated_bytes.endswith(s)), None)
             if matched is not None:
                 stop_reason = "stop_sequence"
