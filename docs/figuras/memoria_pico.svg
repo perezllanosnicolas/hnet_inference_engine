@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 400" font-family="sans-serif" font-size="12">
+<rect width="760" height="400" fill="#ffffff"/>
+<text x="380.0" y="26" text-anchor="middle" font-size="15" font-weight="bold" fill="#222">Pico de VRAM durante la generación (256 B generados)</text>
+<line x1="70" y1="320.0" x2="740" y2="320.0" stroke="#ddd"/>
+<text x="64" y="324.0" text-anchor="end" fill="#444">0</text>
+<line x1="70" y1="243.7" x2="740" y2="243.7" stroke="#ddd"/>
+<text x="64" y="247.7" text-anchor="end" fill="#444">1000</text>
+<line x1="70" y1="167.4" x2="740" y2="167.4" stroke="#ddd"/>
+<text x="64" y="171.4" text-anchor="end" fill="#444">2000</text>
+<line x1="70" y1="91.1" x2="740" y2="91.1" stroke="#ddd"/>
+<text x="64" y="95.1" text-anchor="end" fill="#444">3000</text>
+<text x="16" y="190.0" transform="rotate(-90 16 190.0)" text-anchor="middle" fill="#444">MiB (max_memory_allocated)</text>
+<rect x="92.3" y="212.0" width="42.7" height="108.0" fill="#2a6fb0"/>
+<text x="113.7" y="208.0" text-anchor="middle" font-size="10" fill="#222">1415</text>
+<rect x="137.0" y="181.3" width="42.7" height="138.7" fill="#e08a1e"/>
+<text x="158.3" y="177.3" text-anchor="middle" font-size="10" fill="#222">1818</text>
+<rect x="181.7" y="246.6" width="42.7" height="73.4" fill="#3a9d5d"/>
+<text x="203.0" y="242.6" text-anchor="middle" font-size="10" fill="#222">962</text>
+<rect x="226.3" y="94.3" width="42.7" height="225.7" fill="#b0413e"/>
+<text x="247.7" y="90.3" text-anchor="middle" font-size="10" fill="#222">2959</text>
+<text x="181.7" y="338" text-anchor="middle" fill="#222">prompt 256 B</text>
+<rect x="315.7" y="202.2" width="42.7" height="117.8" fill="#2a6fb0"/>
+<text x="337.0" y="198.2" text-anchor="middle" font-size="10" fill="#222">1544</text>
+<rect x="360.3" y="169.9" width="42.7" height="150.1" fill="#e08a1e"/>
+<text x="381.7" y="165.9" text-anchor="middle" font-size="10" fill="#222">1967</text>
+<rect x="405.0" y="246.0" width="42.7" height="74.0" fill="#3a9d5d"/>
+<text x="426.3" y="242.0" text-anchor="middle" font-size="10" fill="#222">970</text>
+<rect x="449.7" y="93.0" width="42.7" height="227.0" fill="#b0413e"/>
+<text x="471.0" y="89.0" text-anchor="middle" font-size="10" fill="#222">2975</text>
+<text x="405.0" y="338" text-anchor="middle" fill="#222">prompt 1024 B</text>
+<rect x="539.0" y="160.9" width="42.7" height="159.1" fill="#2a6fb0"/>
+<text x="560.3" y="156.9" text-anchor="middle" font-size="10" fill="#222">2085</text>
+<rect x="583.7" y="120.9" width="42.7" height="199.1" fill="#e08a1e"/>
+<text x="605.0" y="116.9" text-anchor="middle" font-size="10" fill="#222">2610</text>
+<rect x="628.3" y="243.3" width="42.7" height="76.7" fill="#3a9d5d"/>
+<text x="649.7" y="239.3" text-anchor="middle" font-size="10" fill="#222">1005</text>
+<rect x="673.0" y="87.9" width="42.7" height="232.1" fill="#b0413e"/>
+<text x="694.3" y="83.9" text-anchor="middle" font-size="10" fill="#222">3043</text>
+<text x="628.3" y="338" text-anchor="middle" fill="#222">prompt 4096 B</text>
+<line x1="70" y1="320" x2="740" y2="320" stroke="#444"/>
+<rect x="70" y="372" width="12" height="12" fill="#2a6fb0"/>
+<text x="87" y="382" fill="#222">H-Net 1 etapa (L)</text>
+<rect x="211" y="372" width="12" height="12" fill="#e08a1e"/>
+<text x="228" y="382" fill="#222">H-Net 2 etapas (L)</text>
+<rect x="359" y="372" width="12" height="12" fill="#3a9d5d"/>
+<text x="376" y="382" fill="#222">Qwen2.5-0.5B</text>
+<rect x="465" y="372" width="12" height="12" fill="#b0413e"/>
+<text x="482" y="382" fill="#222">Qwen2.5-1.5B</text>
+</svg>

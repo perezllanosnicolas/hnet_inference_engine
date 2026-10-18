@@ -1,10 +1,12 @@
-# hnet_inference_engine
+# hnet_inference_engine (v1)
+
+> **Versión v1 (primera versión funcional).** Prototipo de referencia para validar la arquitectura del motor y obtener las primeras medidas. Funciona con batch = 1 y no incluye todavía batching, optimización de la decodificación ni imagen Docker. La guía completa (contexto del TFG, estructura del código, ejecución en otro equipo, resultados y trabajo futuro) se encuentra en [INICIO.md](INICIO.md).
 
 Motor de inferencia en GPU para **H-Net**, un modelo de lenguaje sin tokenizador que opera directamente sobre bytes y agrupa la secuencia en *chunks* aprendidos mediante *dynamic chunking*. El motor ofrece una interfaz común para H-Net y para un baseline Transformer denso (Qwen2.5) y los evalúa con el mismo código de generación, muestreo y medición.
 
 Trabajo Fin de Grado, Grado en Ingeniería de Computadores (URJC).
 
-## Estado (primera versión funcional)
+## Estado (v1)
 
 - Carga de los checkpoints oficiales de H-Net (`cartesia-ai/hnet_1stage_L`, `hnet_2stage_L`, ...) y de Qwen2.5-0.5B / 1.5B.
 - Generación incremental (prefill y decodificación byte a byte) con muestreo configurable (temperatura, top-k, top-p, penalización por repetición) y condiciones de parada.
@@ -13,7 +15,7 @@ Trabajo Fin de Grado, Grado en Ingeniería de Computadores (URJC).
 - API REST con FastAPI (`src/api/`) y página web de demostración: generación en streaming, comparación de modelos con el mismo prompt y visualización de la segmentación (chunks de H-Net frente a tokens BPE).
 - Benchmarks reproducibles de throughput y de pico de memoria (`scripts/`).
 
-Pendiente: batching de varias secuencias, optimización de la decodificación de H-Net (actualmente limitada por la CPU) e imagen Docker.
+Pendiente para versiones posteriores: batching de varias secuencias, optimización de la decodificación de H-Net (actualmente limitada por la CPU), caché propia e imagen Docker. La lista completa figura en la última sección de [INICIO.md](INICIO.md).
 
 ## Requisitos
 
@@ -80,7 +82,19 @@ curl -s http://127.0.0.1:8000/generate -H 'Content-Type: application/json' \
 .venv/bin/python -m unittest tests.test_engine tests.test_api -v
 ```
 
-Los resultados de los benchmarks se guardan en `results/` en formato JSON junto con la descripción del entorno (GPU, versiones y commit).
+Los resultados de los benchmarks se guardan en `results/` en formato JSON junto con la descripción del entorno (GPU, versiones y commit). Las figuras de esta documentación se regeneran con `scripts/generar_figuras.py`.
+
+### Resultados de la v1 (RTX 4060 Laptop, 8 GB, bf16, batch = 1, voraz)
+
+Velocidad de decodificación (mediana de 5 repeticiones, 256 bytes generados):
+
+![Velocidad de decodificación](docs/figuras/decodificacion.svg)
+
+Pico de VRAM durante la generación:
+
+![Pico de VRAM](docs/figuras/memoria_pico.svg)
+
+El análisis completo (TTFT, compresión de H-Net, descripción de la batería y limitaciones) figura en [INICIO.md](INICIO.md).
 
 ## Estructura
 
@@ -91,7 +105,8 @@ src/models/wrappers/            interfaz común (base.py) y envoltorios de H-Net
 src/models/architectures/hnet/  código de H-Net (goombalab/hnet) con correcciones mínimas
 src/models/architectures/hnet_compat.py  adaptadores de compatibilidad de versiones
 src/utils/metrics.py            utilidades de medición reproducible
-scripts/                        benchmarks y prueba de humo de la arquitectura
+scripts/                        benchmarks, generación de figuras y prueba de humo de la arquitectura
+docs/figuras/                   figuras SVG de los resultados de la v1
 configs/                        configuraciones de H-Net y texto de referencia de los benchmarks
 tests/                          pruebas unitarias y de coherencia
 ```
