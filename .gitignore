@@ -46,3 +46,6 @@ htmlcov/
 .vscode/
 .idea/
 .DS_Store
+
+# Anotaciones locales de decisiones de diseño
+anotaciones/

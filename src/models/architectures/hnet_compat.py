@@ -17,6 +17,13 @@ Parches aplicados:
        de ``zxbcdt`` cuyos strides en channel-last no son múltiplos de 8, lo que
        aborta el kernel. Se realiza una copia alineada; su coste debe tenerse en
        cuenta en los benchmarks.
+
+El coste del parche 3 puede cuantificarse con ``SHIM_PROFILER``: desactivado por
+defecto (sin coste adicional), al activarse contabiliza las copias de
+alineación, los bytes copiados y, opcionalmente, su tiempo de GPU mediante
+eventos CUDA, que no introducen sincronizaciones hasta la lectura del resumen.
+Solo afecta al procesamiento de secuencias completas (prefill); la
+decodificación incremental emplea ``causal_conv1d_update`` y no pasa por él.
 """
 
 import os
@@ -34,6 +41,74 @@ def _dummy_set_allocator(allocator):
     pass
 
 
+class ShimProfiler:
+    """Contador del coste de las copias de alineación introducidas por el parche 3."""
+
+    def __init__(self):
+        self.enabled = False
+        self.timing = False
+        self.reset()
+
+    def reset(self):
+        self.fwd_calls = 0
+        self.copies = 0
+        self.bytes_copied = 0
+        self._events: list[tuple[torch.cuda.Event, torch.cuda.Event]] = []
+
+    def enable(self, timing: bool = True):
+        self.reset()
+        self.enabled = True
+        self.timing = timing
+
+    def disable(self):
+        self.enabled = False
+
+    def start(self):
+        """Registra el evento inicial de una posible copia (``None`` si no se mide el tiempo)."""
+        if not self.timing:
+            return None
+        event = torch.cuda.Event(enable_timing=True)
+        event.record()
+        return event
+
+    def record_copy(self, tensor, start_event):
+        """Contabiliza una copia del tamaño de ``tensor`` iniciada en ``start_event``."""
+        self.copies += 1
+        self.bytes_copied += tensor.numel() * tensor.element_size()
+        if start_event is not None:
+            end_event = torch.cuda.Event(enable_timing=True)
+            end_event.record()
+            self._events.append((start_event, end_event))
+
+    def summary(self) -> dict:
+        """Devuelve los contadores acumulados; sincroniza con la GPU si se ha medido el tiempo."""
+        time_ms = None
+        if self.timing:
+            if self._events:
+                self._events[-1][1].synchronize()
+            time_ms = sum(a.elapsed_time(b) for a, b in self._events)
+        return {
+            "fwd_calls": self.fwd_calls,
+            "aligned_copies": self.copies,
+            "bytes_copied": self.bytes_copied,
+            "copy_time_ms": time_ms,
+        }
+
+
+SHIM_PROFILER = ShimProfiler()
+
+
+def _align_profiled(x):
+    """``_align_for_kernel`` con contabilidad opcional de la copia."""
+    if not SHIM_PROFILER.enabled:
+        return _align_for_kernel(x)
+    start_event = SHIM_PROFILER.start()
+    x_aligned = _align_for_kernel(x)
+    if x_aligned is not x:
+        SHIM_PROFILER.record_copy(x_aligned, start_event)
+    return x_aligned
+
+
 def _align_for_kernel(x):
     """Devuelve ``x`` con strides admitidos por el kernel (copia solo si es necesario)."""
     if x.stride(1) == 1 and (x.stride(0) % 8 != 0 or x.stride(2) % 8 != 0):
@@ -49,6 +124,8 @@ def _make_patched_causal_conv1d_fwd(orig_fwd):
     """Construye el adaptador de ``causal_conv1d_fwd`` sobre la función original."""
 
     def _patched_causal_conv1d_fwd(*args):
+        if SHIM_PROFILER.enabled:
+            SHIM_PROFILER.fwd_calls += 1
         # Se distinguen las dos convenciones de llamada por el número de argumentos
         if len(args) == 8:
             return _current_causal_conv1d_fwd(*args)
@@ -60,12 +137,15 @@ def _make_patched_causal_conv1d_fwd(orig_fwd):
         # Convención nueva (8 argumentos, ``out`` preasignado por quien llama), empleada
         # por la propia interfaz de causal-conv1d (``causal_conv1d_fn``). Si ``x`` no está
         # alineado, se calcula sobre una copia alineada y se vuelca el resultado en ``out``.
-        x_aligned = _align_for_kernel(x)
+        x_aligned = _align_profiled(x)
         if x_aligned is x:
             return orig_fwd(x, weight, bias, seq_idx, initial_states, out, final_states_out, silu_activation)
         out_aligned = torch.empty_like(x_aligned)
         orig_fwd(x_aligned, weight, bias, seq_idx, initial_states, out_aligned, final_states_out, silu_activation)
+        start_event = SHIM_PROFILER.start() if SHIM_PROFILER.enabled else None
         out.copy_(out_aligned)
+        if SHIM_PROFILER.enabled:
+            SHIM_PROFILER.record_copy(out, start_event)
 
     def _legacy_causal_conv1d_fwd(
         x,
@@ -77,7 +157,7 @@ def _make_patched_causal_conv1d_fwd(orig_fwd):
         silu_activation=True,
     ):
         # Convención antigua (7 argumentos) empleada directamente por mamba-ssm 2.2.4
-        x = _align_for_kernel(x)
+        x = _align_profiled(x)
 
         # Preasignación de las salidas requerida por la firma de 8 argumentos
         out = torch.empty_like(x)
